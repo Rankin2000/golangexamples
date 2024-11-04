@@ -4,6 +4,7 @@ For a presentation on basic malware, some basic examples of functionality had to
 Examples include:
 - Basic Shellcode Runner
 - Process Injection
+- IPv4 Obfuscation
 - Shellcode Payload stored on Web
 - Command Line spoofing
 
