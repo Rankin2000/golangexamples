@@ -138,7 +138,8 @@ func CreateArgSpoofedProcess(fakeArgs, realArgs string) (windows.Handle, windows
 
 
 	
-	// Step 2: Retrieve the Process Environment Block (PEB) address	var pbi PROCESS_BASIC_INFORMATION 
+	// Step 2: Retrieve the Process Environment Block (PEB) address	
+	var pbi PROCESS_BASIC_INFORMATION 
 	var returnLength uint32
 
 
