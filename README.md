@@ -12,3 +12,6 @@ Examples include:
 Proof of concept of calc.exe was used. 
 
 `msfvenom -p windows/x64/exec cmd=calc.exe -f hex`
+
+
+All Golang examples are purely PoC and not recommended code.
