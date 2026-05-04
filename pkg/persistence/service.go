@@ -8,18 +8,18 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-// Service registers a Windows auto-start service via SCM.  Requires admin.
-// MITRE T1543.003.
+// Service registers a Windows auto-start service via the SCM.
+// Requires administrator privileges.  MITRE T1543.003.
 type Service struct {
 	ServiceName string   // default: "WinHelperSvc"
 	DisplayName string   // default: "Windows Helper Service"
 	Description string   // default: "Provides supplemental Windows update telemetry."
 	ExePath     string   // required
-	Args        []string // optional command-line args; each is escaped independently
+	Args        []string // each arg is escaped independently by the mgr package
 }
 
-func (s *Service) Name() string  { return "windows-service" }
-func (s *Service) MITRE() string { return "T1543.003" }
+func (s *Service) Name() string { return "windows-service" }
+func (s *Service) ID() string   { return "T1543.003" }
 
 func (s *Service) svcName() string {
 	if s.ServiceName == "" {
@@ -65,7 +65,7 @@ func (s *Service) Run() error {
 	return nil
 }
 
-// Start triggers an immediate service start (otherwise it waits for boot).
+// Start triggers the service immediately (otherwise it waits for next boot).
 func (s *Service) Start() error {
 	m, err := mgr.Connect()
 	if err != nil {
@@ -80,7 +80,7 @@ func (s *Service) Start() error {
 	return h.Start()
 }
 
-func (s *Service) Cleanup() error {
+func (s *Service) Rollback() error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return err

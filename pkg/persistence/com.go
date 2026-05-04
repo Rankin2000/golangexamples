@@ -7,7 +7,7 @@ import (
 )
 
 // COMHijack writes HKCU\Software\Classes\CLSID\{CLSID}\InprocServer32 so any
-// process which instantiates the target CLSID for the current user loads
+// process that instantiates the target CLSID for the current user loads
 // DLLPath instead of the legitimate handler.  No admin required.
 // MITRE T1546.015.
 type COMHijack struct {
@@ -16,8 +16,8 @@ type COMHijack struct {
 	ThreadingModel string // default: "Apartment"
 }
 
-func (c *COMHijack) Name() string  { return "com-hijack" }
-func (c *COMHijack) MITRE() string { return "T1546.015" }
+func (c *COMHijack) Name() string { return "com-hijack" }
+func (c *COMHijack) ID() string   { return "T1546.015" }
 
 func (c *COMHijack) Run() error {
 	if c.CLSID == "" || c.DLLPath == "" {
@@ -39,8 +39,9 @@ func (c *COMHijack) Run() error {
 	return k.SetStringValue("ThreadingModel", tm)
 }
 
-func (c *COMHijack) Cleanup() error {
+func (c *COMHijack) Rollback() error {
 	parent := fmt.Sprintf(`Software\Classes\CLSID\%s`, c.CLSID)
+	// leaf must be deleted before parent; DeleteKey only removes empty keys
 	registry.DeleteKey(registry.CURRENT_USER, parent+`\InprocServer32`)
 	registry.DeleteKey(registry.CURRENT_USER, parent)
 	return nil

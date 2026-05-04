@@ -10,15 +10,16 @@ import (
 )
 
 // StartupFolder copies the payload (or writes a .lnk shortcut) into the
-// user's Startup folder.  MITRE T1547.001.
+// user's Startup folder so Windows auto-launches it on logon.
+// MITRE T1547.001.
 type StartupFolder struct {
 	PayloadPath string // required: source binary
 	DropName    string // default: "OneDriveHelper.exe" or .lnk
-	UseLNK      bool   // if true, write a .lnk pointing at PayloadPath
+	UseLNK      bool   // write a .lnk pointing at PayloadPath instead of copying
 }
 
-func (s *StartupFolder) Name() string  { return "startup-folder" }
-func (s *StartupFolder) MITRE() string { return "T1547.001" }
+func (s *StartupFolder) Name() string { return "startup-folder" }
+func (s *StartupFolder) ID() string   { return "T1547.001" }
 
 func (s *StartupFolder) dropName() string {
 	if s.DropName != "" {
@@ -51,7 +52,11 @@ func (s *StartupFolder) Run() error {
 		return fmt.Errorf("PayloadPath is required")
 	}
 	if s.UseLNK {
-		return s.runLNK()
+		lnkPath, err := s.destPath()
+		if err != nil {
+			return err
+		}
+		return writeLNK(lnkPath, s.PayloadPath)
 	}
 	return s.runCopy()
 }
@@ -75,15 +80,7 @@ func (s *StartupFolder) runCopy() error {
 	return err
 }
 
-func (s *StartupFolder) runLNK() error {
-	lnkPath, err := s.destPath()
-	if err != nil {
-		return err
-	}
-	return writeLNK(lnkPath, s.PayloadPath)
-}
-
-func (s *StartupFolder) Cleanup() error {
+func (s *StartupFolder) Rollback() error {
 	dst, err := s.destPath()
 	if err != nil {
 		return err
@@ -143,7 +140,7 @@ func writeLNK(lnkPath, target string) error {
 	var sl *shellLink
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsidShellLink)),
-		0, 1, // CLSCTX_INPROC_SERVER
+		0, 1,
 		uintptr(unsafe.Pointer(&iidShellLinkW)),
 		uintptr(unsafe.Pointer(&sl)),
 	)
@@ -179,7 +176,7 @@ func writeLNK(lnkPath, target string) error {
 		pf.vtbl.Save,
 		uintptr(unsafe.Pointer(pf)),
 		uintptr(unsafe.Pointer(pathW)),
-		1, // fRemember = TRUE
+		1,
 	)
 	if hr != 0 {
 		return fmt.Errorf("Save: 0x%x", hr)
