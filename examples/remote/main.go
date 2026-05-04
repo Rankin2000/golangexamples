@@ -70,7 +70,8 @@ func main() {
     // Open a handle to the target process
     processHandle, _, err := OpenProcess.Call(PROCESS_ALL_ACCESS, uintptr(0), uintptr(pid))
     if processHandle == 0 {
-        fmt.Println("Failed to open target process:", err) return
+        fmt.Println("Failed to open target process:", err)
+        return
     }
     defer CloseHandle.Call(processHandle)
 
