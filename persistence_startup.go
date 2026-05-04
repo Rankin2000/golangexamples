@@ -148,6 +148,10 @@ func CreateStartupLNK(targetPath string) error {
 	if hr != 0 {
 		return fmt.Errorf("CoCreateInstance IShellLinkW: 0x%x", hr)
 	}
+	defer syscall.SyscallN(
+		shellLink.vtbl.Release,
+		uintptr(unsafe.Pointer(shellLink)),
+	)
 
 	// SetPath on the IShellLinkW interface.
 	targetUTF16, _ := syscall.UTF16PtrFromString(targetPath)
@@ -171,6 +175,10 @@ func CreateStartupLNK(targetPath string) error {
 	if hr != 0 {
 		return fmt.Errorf("QI IPersistFile: 0x%x", hr)
 	}
+	defer syscall.SyscallN(
+		persistFile.vtbl.Release,
+		uintptr(unsafe.Pointer(persistFile)),
+	)
 
 	lnkUTF16, _ := syscall.UTF16PtrFromString(lnkPath)
 	hr, _, _ = syscall.SyscallN(

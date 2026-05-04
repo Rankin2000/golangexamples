@@ -52,10 +52,15 @@ func CreateScheduledTask(payloadPath string) error {
 // CreateScheduledTaskXML does the same thing via an XML definition piped to
 // schtasks /XML, giving you full control over task properties without admin.
 func CreateScheduledTaskXML(payloadPath string) error {
-	// Escape the path for embedding in XML.
-	escaped := strings.ReplaceAll(payloadPath, `\`, `\\`)
+	// XML element-text escaping.  Backslashes in Windows paths are NOT escaped;
+	// only &, <, > need replacement inside the <Command> element.
+	escaped := payloadPath
+	escaped = strings.ReplaceAll(escaped, "&", "&amp;")
+	escaped = strings.ReplaceAll(escaped, "<", "&lt;")
+	escaped = strings.ReplaceAll(escaped, ">", "&gt;")
 
-	taskXML := `<?xml version="1.0" encoding="UTF-16"?>
+	// Encoding declaration must match the bytes we actually write (UTF-8).
+	taskXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger>
