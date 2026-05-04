@@ -8,16 +8,16 @@ import (
 )
 
 // SchTask creates a Windows scheduled task that runs at user logon.
-// MITRE T1053.005.  No admin required for HKCU-scoped tasks.
+// MITRE T1053.005.  No admin required for user-scoped tasks.
 type SchTask struct {
 	TaskName    string // default: "MicrosoftEdgeUpdateCore"
 	PayloadPath string // required
-	UseXML      bool   // if true, register via XML (hidden flag, full control)
-	Delay       string // schtasks /DELAY value, default: "0000:30"
+	UseXML      bool   // register via XML for Hidden flag and full control
+	Delay       string // schtasks /DELAY value, default "0000:30"
 }
 
-func (t *SchTask) Name() string  { return "scheduled-task" }
-func (t *SchTask) MITRE() string { return "T1053.005" }
+func (t *SchTask) Name() string { return "scheduled-task" }
+func (t *SchTask) ID() string   { return "T1053.005" }
 
 func (t *SchTask) taskName() string {
 	if t.TaskName == "" {
@@ -100,7 +100,7 @@ func (t *SchTask) runXML() error {
 	return nil
 }
 
-func (t *SchTask) Cleanup() error {
+func (t *SchTask) Rollback() error {
 	out, err := exec.Command("schtasks.exe", "/Delete", "/F", "/TN", t.taskName()).CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "cannot find the file") {
 		return fmt.Errorf("schtasks delete: %w\n%s", err, out)

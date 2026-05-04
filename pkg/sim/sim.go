@@ -1,80 +1,158 @@
 package sim
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
-// Sim chains a sequence of techniques into a single executable plan.
-// Run order is FIFO; Cleanup order is LIFO so later changes are reverted
-// before earlier ones (matching defer-style semantics).
+// Sim orchestrates a sequence of Phases, each containing one or more TTPs.
+// Phases execute in order; TTPs within a phase execute in order.
+// Errors within a TTP are recorded in the JSON report but do not halt
+// the run — operators see the full pass/fail picture across all techniques.
 type Sim struct {
-	techniques []Technique
+	Phases     []Phase
+	DryRun     bool
+	ReportPath string // JSON report destination; default "mitre_report.json"
 	Logger     *log.Logger
 }
 
-// New returns a Sim that logs to stderr.
+// New returns a Sim writing logs to stderr with a default report path.
 func New() *Sim {
-	return &Sim{Logger: log.New(os.Stderr, "", log.LstdFlags)}
+	return &Sim{
+		Logger:     log.New(os.Stderr, "", log.LstdFlags),
+		ReportPath: "mitre_report.json",
+	}
 }
 
-// SetOutput redirects log output (useful in tests or when chaining loggers).
+// SetOutput redirects log output (useful in tests).
 func (s *Sim) SetOutput(w io.Writer) {
 	s.Logger.SetOutput(w)
 }
 
-// Add appends a technique to the plan and returns the receiver to allow chaining.
-func (s *Sim) Add(t Technique) *Sim {
-	s.techniques = append(s.techniques, t)
+// AddPhase appends a phase and returns the receiver for chaining.
+func (s *Sim) AddPhase(label string, sleep time.Duration, ttps ...TTP) *Sim {
+	s.Phases = append(s.Phases, Phase{
+		Label:   label,
+		TTPs:    ttps,
+		Sleep:   sleep,
+		Enabled: true,
+	})
 	return s
 }
 
-// Run executes each technique in order.  Stops at the first failure and
-// returns its error wrapped with the technique name.  Already-applied
-// techniques are NOT automatically rolled back; call Cleanup for that.
-func (s *Sim) Run() error {
-	for _, t := range s.techniques {
-		s.Logger.Printf("[*] run %s (%s)", t.Name(), t.MITRE())
-		if err := t.Run(); err != nil {
-			return fmt.Errorf("%s: %w", t.Name(), err)
+// Plan returns a human-readable description of every phase and TTP without
+// executing anything.  Use this for dry-run logging and pre-flight review.
+func (s *Sim) Plan() []string {
+	var lines []string
+	for i, ph := range s.Phases {
+		state := ""
+		if !ph.Enabled {
+			state = " [disabled]"
 		}
-		s.Logger.Printf("[+] %s done", t.Name())
+		lines = append(lines, fmt.Sprintf(
+			"phase %d: %s  sleep=%s%s", i+1, ph.Label, ph.Sleep, state,
+		))
+		for _, t := range ph.TTPs {
+			lines = append(lines, "  - "+ttpLabel(t))
+		}
+	}
+	return lines
+}
+
+// Run executes all enabled phases in insertion order.
+// Between phases it sleeps for Phase.Sleep (unless DryRun or 0).
+// A JSON report is written to ReportPath when the run finishes.
+func (s *Sim) Run() error {
+	start := time.Now()
+	report := Report{
+		Timestamp: start.UTC(),
+		DryRun:    s.DryRun,
+	}
+
+	for i, ph := range s.Phases {
+		pr := PhaseResult{
+			Label:   ph.Label,
+			Sleep:   ph.Sleep.String(),
+			Enabled: ph.Enabled,
+		}
+
+		if !ph.Enabled {
+			s.Logger.Printf("[skip]  phase %q (disabled)", ph.Label)
+			report.Phases = append(report.Phases, pr)
+			continue
+		}
+
+		s.Logger.Printf("[phase] %s", ph.Label)
+
+		for _, t := range ph.TTPs {
+			tr := TTPResult{ID: t.ID()}
+			s.Logger.Printf("  [*]   %s", ttpLabel(t))
+
+			if s.DryRun {
+				tr.Status = "dry-run"
+				s.Logger.Printf("  [dry] skipped")
+			} else if err := t.Run(); err != nil {
+				tr.Status = "fail"
+				tr.Error = err.Error()
+				s.Logger.Printf("  [-]   %v", err)
+			} else {
+				tr.Status = "pass"
+				s.Logger.Printf("  [+]   done")
+			}
+
+			pr.TTPs = append(pr.TTPs, tr)
+		}
+
+		report.Phases = append(report.Phases, pr)
+
+		if ph.Sleep > 0 && !s.DryRun && i < len(s.Phases)-1 {
+			s.Logger.Printf("[sleep] %s", ph.Sleep)
+			time.Sleep(ph.Sleep)
+		}
+	}
+
+	report.Duration = time.Since(start).Round(time.Millisecond).String()
+
+	if err := writeReport(s.ReportPath, report); err != nil {
+		s.Logger.Printf("[warn]  report write failed: %v", err)
 	}
 	return nil
 }
 
-// Cleanup invokes Cleanup() on every technique that implements Cleaner, in
-// reverse insertion order.  Errors are accumulated; iteration continues so
-// that a single failure does not strand later cleanup steps.
-func (s *Sim) Cleanup() error {
+// Rollback calls Rollback() on every TTP in reverse phase order, reverse TTP
+// order within each phase.  Errors are accumulated; iteration always continues.
+func (s *Sim) Rollback() error {
 	var errs []string
-	for i := len(s.techniques) - 1; i >= 0; i-- {
-		t := s.techniques[i]
-		c, ok := t.(Cleaner)
-		if !ok {
+	for i := len(s.Phases) - 1; i >= 0; i-- {
+		ph := s.Phases[i]
+		if !ph.Enabled {
 			continue
 		}
-		s.Logger.Printf("[*] cleanup %s", t.Name())
-		if err := c.Cleanup(); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", t.Name(), err))
+		s.Logger.Printf("[rollback] phase %q", ph.Label)
+		for j := len(ph.TTPs) - 1; j >= 0; j-- {
+			t := ph.TTPs[j]
+			s.Logger.Printf("  [*] rollback %s", ttpLabel(t))
+			if err := t.Rollback(); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", t.ID(), err))
+				s.Logger.Printf("  [-] %v", err)
+			}
 		}
 	}
 	if len(errs) > 0 {
-		return errors.New("cleanup: " + strings.Join(errs, "; "))
+		return fmt.Errorf("rollback: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }
 
-// Plan returns "name (MITRE)" strings for every queued technique without
-// executing anything - useful for dry-run logging in red-team reports.
-func (s *Sim) Plan() []string {
-	out := make([]string, 0, len(s.techniques))
-	for _, t := range s.techniques {
-		out = append(out, fmt.Sprintf("%s (%s)", t.Name(), t.MITRE()))
+// ttpLabel returns "name (ID)" if the TTP exposes a Name() method, else just ID.
+func ttpLabel(t TTP) string {
+	type namer interface{ Name() string }
+	if n, ok := t.(namer); ok {
+		return fmt.Sprintf("%s (%s)", n.Name(), t.ID())
 	}
-	return out
+	return t.ID()
 }
